@@ -1,7 +1,7 @@
 //! High-Performance Trading Server
 //!
 //! A demonstration trading server that showcases the order book engine
-//! with real-time metrics and monitoring capabilities.
+//! with real-time monitoring capabilities.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,9 +9,7 @@ use tokio::time::interval;
 use tracing::{error, info, warn};
 use tracing_subscriber;
 
-use orderbook_trading_engine::{
-    metrics::MetricsReporter, orderbook::types::*, OrderBook, OrderBookMetrics,
-};
+use orderbook_trading_engine::{orderbook::types::*, OrderBook};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,44 +21,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create order books for multiple symbols
     let symbols = vec!["AAPL", "GOOGL", "MSFT", "TSLA", "AMZN"];
     let mut order_books = std::collections::HashMap::new();
-    let mut metrics_map = std::collections::HashMap::new();
 
     for symbol in &symbols {
         let book = Arc::new(OrderBook::new(symbol.to_string()));
-        let metrics = Arc::new(OrderBookMetrics::new());
-
         order_books.insert(symbol.to_string(), book);
-        metrics_map.insert(symbol.to_string(), metrics);
-
         info!("Created order book for symbol: {}", symbol);
-    }
-
-    // Start metrics reporting
-    let mut metric_reporters = Vec::new();
-    for (symbol, metrics) in &metrics_map {
-        let reporter = MetricsReporter::new(Arc::clone(metrics), Duration::from_secs(5));
-
-        let symbol_clone = symbol.clone();
-        tokio::spawn(async move {
-            info!("Starting metrics reporter for {}", symbol_clone);
-            reporter.run().await;
-        });
-
-        metric_reporters.push(reporter);
     }
 
     // Start market data simulation
     for (symbol, book) in &order_books {
         let book_clone = Arc::clone(book);
         let symbol_clone = symbol.clone();
-        let metrics_clone = Arc::clone(&metrics_map[symbol]);
 
         tokio::spawn(async move {
-            simulate_market_activity(book_clone, symbol_clone, metrics_clone).await;
+            info!("Starting market simulation for {}", symbol_clone);
+            simulate_market_activity(book_clone, symbol_clone).await;
         });
     }
 
     // Start server statistics reporting
+    let order_books_clone = order_books.clone();
     tokio::spawn(async move {
         let mut interval = interval(Duration::from_secs(10));
 
@@ -70,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut total_orders = 0;
             let mut total_trades = 0;
 
-            for (symbol, book) in &order_books {
+            for (symbol, book) in &order_books_clone {
                 let stats = book.get_stats();
                 total_orders += stats.total_orders;
                 total_trades += stats.total_trades;
@@ -90,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "🚀 Server totals: {} orders, {} trades across {} symbols",
                 total_orders,
                 total_trades,
-                order_books.len()
+                order_books_clone.len()
             );
         }
     });
@@ -122,11 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Simulate realistic market activity for a symbol
-async fn simulate_market_activity(
-    book: Arc<OrderBook>,
-    symbol: String,
-    metrics: Arc<OrderBookMetrics>,
-) {
+async fn simulate_market_activity(book: Arc<OrderBook>, symbol: String) {
     let mut interval = interval(Duration::from_millis(10)); // 100 ops/second
     let mut base_price = 10000; // Starting price in ticks
     let mut order_counter = 0;
@@ -139,13 +115,8 @@ async fn simulate_market_activity(
         let bid_order = Order::new_limit(symbol.clone(), Side::Buy, bid_price, 100, None);
         let ask_order = Order::new_limit(symbol.clone(), Side::Sell, ask_price, 100, None);
 
-        if let Ok(_) = book.add_limit_order(bid_order) {
-            metrics.increment_orders_added();
-        }
-
-        if let Ok(_) = book.add_limit_order(ask_order) {
-            metrics.increment_orders_added();
-        }
+        let _ = book.add_limit_order(bid_order);
+        let _ = book.add_limit_order(ask_order);
     }
 
     info!("Initial liquidity added for {}", symbol);
@@ -167,16 +138,9 @@ async fn simulate_market_activity(
 
                 let market_order = Order::new_market(symbol.clone(), side, quantity, None);
 
-                match metrics.time_add_order(|| book.add_market_order(market_order)) {
-                    Ok(events) => {
-                        for event in events {
-                            if let MarketEvent::Trade { trade } = event {
-                                metrics.increment_trades_executed(
-                                    trade.quantity,
-                                    trade.price * trade.quantity,
-                                );
-                            }
-                        }
+                match book.add_market_order(market_order) {
+                    Ok(_events) => {
+                        // Market order executed successfully
                     }
                     Err(_) => {
                         // No liquidity available, add some
@@ -192,9 +156,7 @@ async fn simulate_market_activity(
                             quantity,
                             None,
                         );
-                        if let Ok(_) = book.add_limit_order(limit_order) {
-                            metrics.increment_orders_added();
-                        }
+                        let _ = book.add_limit_order(limit_order);
                     }
                 }
             }
@@ -216,17 +178,9 @@ async fn simulate_market_activity(
 
                 let limit_order = Order::new_limit(symbol.clone(), side, price, quantity, None);
 
-                match metrics.time_add_order(|| book.add_limit_order(limit_order)) {
-                    Ok(events) => {
-                        metrics.increment_orders_added();
-                        for event in events {
-                            if let MarketEvent::Trade { trade } = event {
-                                metrics.increment_trades_executed(
-                                    trade.quantity,
-                                    trade.price * trade.quantity,
-                                );
-                            }
-                        }
+                match book.add_limit_order(limit_order) {
+                    Ok(_events) => {
+                        // Limit order added successfully
                     }
                     Err(e) => {
                         warn!("Failed to add limit order for {}: {}", symbol, e);
@@ -249,9 +203,7 @@ async fn simulate_market_activity(
                     let quantity = 50;
 
                     let order = Order::new_limit(symbol.clone(), side, price, quantity, None);
-                    if let Ok(_) = book.add_limit_order(order) {
-                        metrics.increment_orders_added();
-                    }
+                    let _ = book.add_limit_order(order);
                 }
             }
 
@@ -260,18 +212,6 @@ async fn simulate_market_activity(
                 // Simulate price movement
                 let direction = if order_counter % 4 == 0 { 1 } else { -1 };
                 base_price = ((base_price as i64) + direction).max(5000) as u64;
-
-                // Update metrics with current book state
-                if let Some(spread) = book.spread() {
-                    metrics.set_spread(spread);
-                }
-                if let Some(bid) = book.best_bid() {
-                    metrics.set_best_bid(bid);
-                }
-                if let Some(ask) = book.best_ask() {
-                    metrics.set_best_ask(ask);
-                }
-                metrics.set_total_orders(book.total_orders() as u64);
             }
 
             _ => unreachable!(),
@@ -279,10 +219,7 @@ async fn simulate_market_activity(
 
         // Periodic cleanup and statistics update
         if order_counter % 100 == 0 {
-            let stats = book.get_stats();
-            metrics.set_total_orders(stats.total_orders as u64);
-            metrics.set_bid_levels(stats.bid_levels as u64);
-            metrics.set_ask_levels(stats.ask_levels as u64);
+            // Could add periodic maintenance here if needed
         }
     }
 }
@@ -302,7 +239,6 @@ fn format_price(price_ticks: u64) -> String {
 
 /// Start Prometheus metrics server
 async fn start_metrics_server() -> Result<(), Box<dyn std::error::Error>> {
-    use metrics_exporter_prometheus::PrometheusBuilder;
     use std::net::SocketAddr;
 
     let addr: SocketAddr = "0.0.0.0:9090".parse()?;
@@ -312,17 +248,29 @@ async fn start_metrics_server() -> Result<(), Box<dyn std::error::Error>> {
         addr
     );
 
-    let builder = PrometheusBuilder::new();
-    let handle = builder.install()?;
+    #[cfg(feature = "prometheus")]
+    {
+        use metrics_exporter_prometheus::PrometheusBuilder;
 
-    // In a real implementation, you'd start an HTTP server here
-    // For this example, we'll just log that it would be running
-    info!(
-        "Prometheus metrics would be available at http://{}/metrics",
-        addr
-    );
+        let builder = PrometheusBuilder::new();
+        let _handle = builder.install()?;
 
-    // Keep the handle alive
+        // In a real implementation, you'd start an HTTP server here
+        // For this example, we'll just log that it would be running
+        info!(
+            "Prometheus metrics would be available at http://{}/metrics",
+            addr
+        );
+    }
+
+    #[cfg(not(feature = "prometheus"))]
+    {
+        info!(
+            "Prometheus feature not enabled, metrics server disabled. Enable with --features prometheus"
+        );
+    }
+
+    // Keep the server alive
     std::future::pending::<()>().await;
 
     Ok(())

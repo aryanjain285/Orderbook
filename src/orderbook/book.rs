@@ -328,7 +328,7 @@ impl OrderBook {
                     );
 
                     // Update order quantities
-                    order.fill(fill_quantity)?;
+                    order.fill(fill_quantity);
 
                     // Remove completely filled orders from tracking
                     if matched_order.is_complete() {
@@ -408,7 +408,7 @@ impl OrderBook {
                     );
 
                     // Update order quantities
-                    order.fill(fill_quantity)?;
+                    order.fill(fill_quantity);
 
                     // Remove completely filled orders from tracking
                     if matched_order.is_complete() {

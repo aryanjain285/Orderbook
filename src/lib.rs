@@ -56,7 +56,7 @@ pub use orderbook::{
     OrderBook,
 };
 
-pub use metrics::OrderBookMetrics;
+// pub use metrics::OrderBookMetrics;
 
 #[cfg(test)]
 mod integration_tests {

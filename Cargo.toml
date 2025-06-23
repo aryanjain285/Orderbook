@@ -1,0 +1,58 @@
+[package]
+name = "orderbook-trading-engine"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "High-performance lock-free order book engine for electronic trading systems"
+license = "MIT"
+
+[dependencies]
+# Core orderbook dependencies
+dashmap = "6.1.0"                                      # Lock-free concurrent HashMap
+serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Metrics and monitoring
+metrics = "0.23"
+metrics-exporter-prometheus = "0.15"
+influxdb2 = "0.5"                                # InfluxDB client
+tokio = { version = "1.0", features = ["full"] }
+
+# Performance and benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+rayon = "1.10"                                               # Data parallelism
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Serialization
+serde_json = "1.0"
+
+# Atomic operations
+crossbeam = "0.8"
+parking_lot = "0.12" # Fast synchronization primitives
+
+[dev-dependencies]
+tokio-test = "0.4"
+proptest = "1.4"   # Property-based testing
+
+[[bench]]
+name = "orderbook_benchmarks"
+harness = false
+
+[[bin]]
+name = "trading_server"
+path = "src/bin/trading_server.rs"
+
+[[bin]]
+name = "load_generator"
+path = "src/bin/load_generator.rs"
+
+[profile.release]
+lto = true        # Link-time optimization
+codegen-units = 1 # Better optimization
+panic = "abort"   # Smaller binary, faster execution
